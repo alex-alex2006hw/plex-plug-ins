@@ -1,0 +1,209 @@
+#!/usr/bin/env python
+
+"""lihattv Service Code"""
+
+import base64, os, urllib2, io
+
+RESOURCES_PATH = os.path.join(
+    os.getcwd().lstrip('\?').split('Plug-in Support')[0],
+    'Plug-ins', 'LihatTV.bundle', 'Contents', 'Resources'
+    )
+
+####################################################################################################
+def NormalizeURL(url):
+    """This function should return a 'normalised' version of the given URL. Plex uses the URL"""
+
+    if 'player' in url:
+        url_node = url.split('?')
+        url_base = url_node[0]
+        url_id = url_node[1].split('=')[1]
+        return url_base + '?play=' + url_id
+
+    return url
+
+####################################################################################################
+def MetadataObjectForURL(url):
+    """
+    This function should create and return a metadata object (for example, a VideoClipOb-
+    ject) and populate it with metadata from the given URL. Only the metadata should be
+    added here - the object's key and rating_key properties will be synthesised based on the URL.
+    """
+
+    Log.Debug('*' * 80)
+    Log.Debug('* MetadataObjectForURL = %s' %url)
+
+    # pull down raw content to get title from Regex
+    html_page = HTTP.Request(url).content
+    title = Regex('\<title\>(.*?)\<\/title\>').search(html_page).group(1).split('|')[-1].strip()
+    Log.Debug('* title from Regex = %s' %title)
+
+    # format raw content into html element for parsing
+    html = HTML.ElementFromString(html_page)
+
+    player_node = html.xpath('//div[@id="player"]')[0]
+    time_stamp = int(Datetime.TimestampFromDatetime(Datetime.Now()))
+    try:
+        art = player_node.get('style').split('background-image:url')[-1].lstrip('\(\'').rstrip('\'\)\;\"')
+        if not art:
+            art = '/:/plugins/com.plexapp.plugins.lihattv/resources/art-default.jpg?t=' + str(time_stamp)
+    except:
+        art = '/:/plugins/com.plexapp.plugins.lihattv/resources/art-default.jpg?t=' + str(time_stamp)
+
+    thumb_node = player_node.xpath('.//script')[0].text_content().split(';')
+    thumb = '/:/plugins/com.plexapp.plugins.lihattv/resources/thumb-video.png?t=' + str(time_stamp)
+    for item in thumb_node:
+        if 'ChannelPoster' in item:
+            thumb = item.split('ChannelPoster=')[-1].strip('\'')
+            if not thumb:
+                thumb = '/:/plugins/com.plexapp.plugins.lihattv/resources/thumb-video.png?t=' + str(time_stamp)
+            elif thumb == 'data:image/jpeg' or thumb == 'data:image/png':
+                continue
+            elif not thumb.startswith('http'):
+                thumb = 'http://' + thumb
+            break
+        elif 'base64' in item:
+            filename = url.split('=')[-1] + '.jpg'
+
+            if os.path.isfile(os.path.join(RESOURCES_PATH, filename)):
+                thumb = '/:/plugins/com.plexapp.plugins.lihattv/resources/%s?t=%s' %(filename, str(time_stamp))
+            else:
+                img64 = item.lstrip('base64,').rstrip('\'')
+                imgdata = base64.b64decode(img64)
+                with io.open(os.path.join(RESOURCES_PATH, filename), 'wb') as f:
+                    f.write(imgdata)
+
+                thumb = '/:/plugins/com.plexapp.plugins.lihattv/resources/%s?t=%s' %(filename, str(time_stamp))
+            break
+
+    detail_node = player_node.xpath('.//div[@class="detail hide"]')
+    summary = ""
+    genre = []
+    country = []
+    year = None
+    date = None
+    views = ""
+    if detail_node:
+        summary_node = detail_node[0].xpath('./div')
+        if summary_node:
+            summary = summary_node[0].text_content().strip().capitalize()
+
+        genre_node = detail_node[0].xpath('./span[@class="genre"]')
+        if genre_node:
+            genre = [genre_node[0].text]
+
+        country_node = detail_node[0].xpath('./span[@class="country"]')
+        if country_node:
+            country = [country_node[0].text]
+
+        year_node = detail_node[0].xpath('./span[@class="year"]')
+        if year_node:
+            year = int(year_node[0].text)
+
+        date_node = detail_node[0].xpath('./span[@class="date"]')
+        if date_node:
+            date = Datetime.ParseDate(date_node[0].text)
+
+        view_node = detail_node[0].xpath('./span[@class="view"]')
+        if view_node:
+            views = view_node[0].text.split(' Views')[0]
+
+    Log.Debug('* title = %s' %title)
+    Log.Debug('* id = %s' %url.split('=')[1])
+    Log.Debug('* summary = %s' %summary)
+    Log.Debug('* genres = %s' %genre)
+    Log.Debug('* country = %s' %country)
+    Log.Debug('* year = %s' %str(year))
+    Log.Debug('* Views = %s' %views)
+    Log.Debug('* date = %s' %str(date))
+    Log.Debug('* thumb = %s' %thumb)
+    Log.Debug('* art = %s'%art)
+    Log.Debug('*' * 80)
+
+    summary = (
+        'ID: %s | Genre: %s | Country: %s | Views: %s\n\n'
+        %(url.split('=')[1], genre[0] if genre else "", country[0] if country else "", views) + summary
+        ).strip()
+
+    vco = VideoClipObject(
+        title=title,
+        summary=summary,
+        genres=genre,
+        countries=country,
+        content_rating='X' if 'Adult' in genre else 'NR',
+        year=year,
+        originally_available_at=date,
+        art=art,
+        thumb=thumb)
+
+    return vco
+
+####################################################################################################
+def MediaObjectsForURL(url):
+    """
+    This function should create and return a list of media objects and part objects representing
+    the media available at the given URL. Callbacks may be used if obtaining the final media
+    location requires additional computation.
+    """
+
+    Log.Debug('* MediaObjectsForURL = %s' %url)
+    Log.Debug('*' * 80)
+
+    mo = [
+        MediaObject(
+            parts=[PartObject(
+                key=HTTPLiveStreamURL(Callback(PlayVideo, url=url))
+                )]
+            )
+        ]
+
+    return mo
+
+####################################################################################################
+@indirect
+def PlayVideo(url, **kwargs):
+    """Format the video url for m3u8 streams"""
+
+    html = HTML.ElementFromURL(url, encoding='utf8')
+
+    Log.Debug('*' * 80)
+    Log.Debug('* Client.Product     = %s' %Client.Product)
+    Log.Debug('* Client.Platform    = %s' %Client.Platform)
+
+    node = html.xpath('./script')[0].text_content().strip()
+    Log.Debug('* node = %s' %node)
+
+    url64 = Regex('ie11=\'(.+?)\'').search(node).group(1)
+    Log.Debug('* url64 = %s' %url64)
+
+    v_url = base64.b64decode(url64).strip()
+    Log.Debug('* v_url = %s' %v_url)
+    v_url_bitly = v_url.split('/', 3)[2]
+    if v_url_bitly == 'bit.ly' or v_url_bitly == 'j.mp' or v_url_bitly == 'bitly.com':
+        Log.Debug('* bitly link found')
+        v_url = urllib2.urlopen(v_url).url
+        Log.Debug('* bitly link expanded = %s' %v_url)
+
+    v_url_base, v_url_extension = os.path.splitext(v_url)
+    Log.Debug('* (v_url_base, v_url_extension) = (%s, %s)' %(v_url_base, v_url_extension))
+
+    if '.m3u8?' in v_url_extension:
+        v_url_extension = v_url_extension.partition('?')[0]
+        Log.Debug('* cleaned v_url_extension = %s' %v_url_extension)
+    elif '.m3u8?' in v_url_base:
+        v_url_base = v_url_base.partition('?')[0]
+
+    if v_url_extension == '.m3u8' or v_url_base.endswith('.m3u8'):
+        m3u8_url = (v_url_base + v_url_extension).strip()
+        Log.Debug('* url after processing: %s' %m3u8_url)
+        Log.Debug('*' * 80)
+        return IndirectResponse(VideoClipObject, key=m3u8_url)
+    else:
+        try:
+            Log.Debug('* Video is not a live stream | %s' %v_url)
+            Log.Debuy('* Try to play video directly')
+            Log.Debug('*' * 80)
+            return IndirectResponse(VideoClipObject, key=v_url)
+        except:
+            Log.Error('* Invalid Video URL | %s' %v_url)
+            Log.Error('*' * 80)
+            raise Ex.MediaNotAvailable

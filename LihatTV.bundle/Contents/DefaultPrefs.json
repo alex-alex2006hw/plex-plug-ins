@@ -1,0 +1,21 @@
+[
+  {
+    "id": "domain",
+    "label": "Domain",
+    "type": "enum",
+    "values": ["lihattv.us", "lihattv.tk", "lihattv.com", "lihattv.co.id", "lihattv.co.uk"],
+    "default": "lihattv.com"
+  },
+  {
+    "id": "adult",
+    "label": "Allow Adult Content",
+    "type": "bool",
+    "default": "False"
+  },
+  {
+    "id": "debug",
+    "label": "Enable Debug Logging",
+    "type": "bool",
+    "default": "True"
+  }
+]

@@ -1,0 +1,89 @@
+import base64
+
+########################################################################################
+def NormalizeURL(url):
+
+	return url
+
+
+########################################################################################
+def MetadataObjectForURL(url):
+
+	page = HTML.ElementFromURL(url)
+	title = page.xpath("//div[@class='row title-info']/span/a/text()")[0]
+	description = page.xpath("//div[@class='row title-plot']/text()")[0]
+	thumb = page.xpath("//img[@class='img-responsive']/@src")[0]
+	return VideoClipObject(
+		title = title,
+		summary = description.strip(),
+		thumb = thumb
+	)
+
+########################################################################################
+def MediaObjectsForURL(url):
+
+	return [
+		MediaObject(
+			parts = [
+				PartObject(key=Callback(PlayVideo, url=url, post_url=url))
+			],
+			container = Container.MP4,
+			optimized_for_streaming = True if Client.Product != 'Plex Web' else False
+		)
+	]
+
+########################################################################################
+@indirect
+def PlayVideo(url):
+
+	page = HTML.ElementFromURL(url)
+	view_url = ""
+	for each in page.xpath("//div/a[contains(@class,'btn-primary')]"):
+		try:
+			ampcheck = each.xpath("./@alt")[0]
+		except:
+			ampcheck = each.xpath("./@title")[0]
+		if "domain=" in each.xpath("./@href")[0]:
+			if "&" in ampcheck:
+				thisurl = each.xpath("./@href")[0].split('&')[3].replace("url=","",1)
+				view_url = str(base64.b64decode(thisurl)) + "," + view_url
+			else:
+				thisurl = each.xpath("./@href")[0].split('&')[2].replace("url=","",1)
+				view_url = str(base64.b64decode(thisurl)) + "," + view_url
+	view_url = view_url.rstrip(',')
+	view_url = sorted(view_url.split(','), key=str.lower)
+
+	for vurl in view_url:
+		if "allmyvideos" in vurl:
+			video_link = HTTP.Request(vurl).content
+			try:
+				video_url = Regex('"file" :\s"([^"]+)"').search(video_link).groups()[0]
+				return IndirectResponse(VideoClipObject, key=video_url)
+				break
+			except:
+				pass
+		elif "thevideo" in vurl:
+			video_link = HTTP.Request(vurl).content
+			try:
+				video_url = Regex('file:\s"([^"]+)"').search(video_link).groups()[0]
+				return IndirectResponse(VideoClipObject, key=video_url)
+				break
+			except:
+				pass
+		elif "vodlocker" in vurl:
+			vurl = vurl.replace('.com/','.com/embed-',1) + '.html'
+			video_link = HTTP.Request(vurl).content
+			try:
+				video_url = Regex('file:\s"([^"]+)"').search(video_link).groups()[0]
+				return IndirectResponse(VideoClipObject, key=video_url)
+				break
+			except:
+				pass
+		elif "vidzi" in vurl:
+			video_link = HTTP.Request(vurl).content
+			try:
+				video_url = Regex('file:\s"([^"]+)"').search(video_link).groups()[0]
+				return IndirectResponse(VideoClipObject, key=video_url)
+				break
+			except:
+				pass

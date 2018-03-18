@@ -1,0 +1,168 @@
+#!/usr/bin/env python
+
+"""hanime.tv Service code - Return video metadata and url"""
+
+from subprefs import GetPrefs
+from aadecode import decode_aaencode
+
+USER_AGENT = (
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) '
+    'Chrome/46.0.2490.86 Safari/537.36'
+    )
+
+####################################################################################################
+def NormalizeURL(url):
+    """This function should return a 'normalised' version of the given URL. Plex uses the URL"""
+
+    if '?' in url:
+        url = url.split('?')[0]
+
+    return url
+
+####################################################################################################
+def MetadataObjectForURL(url):
+    """
+    This function should create and return a metadata object (for example, a VideoClipOb-
+    ject) and populate it with metadata from the given URL. Only the metadata should be
+    added here - the object's key and rating_key properties will be synthesised based on the URL.
+    """
+
+    html = HTML.ElementFromURL(url)
+
+    d = None
+    for node in html.xpath('//script'):
+        node_text = node.text_content()
+        match = Regex('water\ \=(.*)').search(node_text)
+        if match:
+            d = JSON.ObjectFromString(match.group(1).strip().rstrip(';'))
+            break
+
+    if not d:
+        raise Ex.MediaNotAvailable
+
+    title = d['hentai_franchise']['title']
+    sub = d['video']['is_hard_subtitled']
+    name = title + ' (Sub)' if sub else title
+
+    genres = sorted([g['text'] for g in d['hentai_tags']])
+    summary = String.StripTags(d['video']['description']).replace('\n', '').strip()
+    date = d['video']['released_at']
+    thumb = d['video']['poster_url']
+    views = d['video']['views']
+    fav = d['video']['favorites_count']
+    tagline = 'Favorites: %s | Views: %s' %(fav, views)
+    brand = d['video']['brand']
+
+    time_stamp = int(Datetime.TimestampFromDatetime(Datetime.Now()))
+    art = '/:/plugins/com.plexapp.plugins.hanimetv/resources/art-default.jpg?t=%s' %str(time_stamp)
+
+    duration = None
+    urls = [(v['cached_itag_url'], v['height']) for v in d['transcodes'] if v['file_format_extension'] == 'mp4']
+    if urls:
+        dur = Regex('dur=(\d+(?:\.\d+|))\&').search(urls[0][0])
+        if dur:
+            duration = int(1000 * float(dur.group(1)))
+
+    return VideoClipObject(
+        title=name,
+        summary=summary,
+        duration=duration,
+        thumb=thumb,
+        art=art,
+        genres=genres,
+        source_title='hanime.tv',
+        tagline=tagline,
+        originally_available_at=Datetime.ParseDate(date),
+        year=int(Datetime.ParseDate(date).year),
+        studio=brand,
+        directors=[brand],
+        content_rating='X'
+        )
+
+####################################################################################################
+def MediaObjectsForURL(url):
+    """
+    This function should create and return a list of media objects and part objects representing
+    the media available at the given URL. Callbacks may be used if obtaining the final media
+    location requires additional computation.
+    """
+
+    mo = []
+    fmt_list = ['720','360']
+    prefs = get_prefs()
+
+    if prefs['remote'] == 'true':
+        Log.Debug('* Enable Remote Play')
+        for fmt in fmt_list:
+            mo.append(MediaObject(
+                parts=[PartObject(key=Callback(PlayVideo, url=url, fmt=fmt))],
+                video_resolution=fmt,
+                audio_channels=2,
+                optimized_for_streaming=False
+                ))
+    else:
+        Log.Debug('* Local Network Play Only')
+        for fmt in fmt_list:
+            mo.append(MediaObject(
+                parts=[PartObject(key=Callback(PlayVideo, url=url, fmt=fmt))],
+                video_resolution=fmt,
+                container=Container.MP4,
+                video_codec=VideoCodec.H264,
+                audio_codec=AudioCodec.AAC,
+                audio_channels=2,
+                optimized_for_streaming=True
+                ))
+
+    return mo
+
+####################################################################################################
+@indirect
+def PlayVideo(url, fmt, **kwargs):
+    """Format the final video url from the slug and video resolution"""
+
+    headers = {'User-Agent': USER_AGENT, 'Referer': url}
+    s = HTTP.Request(url, headers=headers, encoding=('utf-8')).content
+    html = HTML.ElementFromString(s)
+
+    d = None
+    for node in html.xpath('//script'):
+        node_text = node.text_content()
+        match = Regex('water\ \=(.*);').search(node_text)
+        if match:
+            d = JSON.ObjectFromString(match.group(1).strip())
+            break
+
+    if not d:
+        raise Ex.MediaNotAvailable
+
+    urls = [(v['cached_itag_url'], v['height'], v['file_format_extension']) for v in d['transcodes']]
+    var_is = decode_aaencode(s)
+    nurls = []
+    for i, (cache, height, ext) in enumerate(urls):
+        nurls.append(('/consume_media/' + cache + var_is[i], height, ext))
+
+    vurl = None
+    for u, h, f in sorted(nurls, key=lambda tup: tup[1]):
+        vurl = 'https://hanime.tv' + u
+        if (fmt == h) and (f == 'mp4'):
+            break
+
+    Log.Debug('* PlayVideo URL      = %s' %vurl)
+
+    if vurl:
+        return IndirectResponse(VideoClipObject, key=vurl)
+    else:
+        raise Ex.MediaNotAvailable
+
+####################################################################################################
+def get_prefs():
+    """
+    Get Prefs
+    If a new key has not been added yet, do so here
+    """
+
+    prefs = GetPrefs()
+    if not 'remote' in prefs.keys():
+        prefs.update({'remote': 'false'})
+
+    return prefs

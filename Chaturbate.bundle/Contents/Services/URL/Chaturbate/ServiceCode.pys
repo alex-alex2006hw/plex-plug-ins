@@ -1,0 +1,119 @@
+#!/usr/bin/env python
+
+"""
+Chaturbate.com Service code
+    :Returns hls stream from m3u8 playlist
+"""
+
+#HTTP_HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.85 Safari/537.36'}
+HTTP_HEADERS_IPAD = {'User-Agent': 'Mozilla/5.0 (iPad; CPU OS 8_1 like Mac OS X) AppleWebKit/600.1.4 (KHTML, like Gecko) Version/8.0 Mobile/12B410 Safari/600.1.4'}
+THUMB_URL = "https://roomimg.stream.highwebmedia.com/ri/"
+RE_BIRTH = Regex(r'(?m)Birth *?Date\: *?(.+?)$')
+RE_AGE = Regex(r'(?m)Age\: *?(.+?)$')
+RE_HLS = Regex(r'["\'](https?://[^"\']+\.m3u8.*?)["\']')
+RE_STREAMS = Regex(r'(?P<bandwidth>\d+).*?\"(?P<codecs>.+?\,.+?)\".*?(?P<resolution>\d+.\d+)')
+
+####################################################################################################
+def MetadataObjectForURL(url):
+
+    html = HTML.ElementFromURL(url, cacheTime=10)
+
+    # setup title
+    title = html.xpath('//ul[@class="sub-nav"]//a/text()')
+    if not title:
+        Log.Error(u"* Error: cannot find title within '{0}'".format(url))
+        raise Ex.MediaNotAvailable
+
+    # setup summary
+    q = list()
+    a = list()
+    for node in html.xpath('//div[@class="bio"]//dl/dt'):
+        q_text = node.text
+        if (q_text != 'About Me:') and (q_text != 'Pics & Videos:') and (q_text != 'Wish List:'):
+            q.append(q_text.strip())
+        else:
+            break
+
+    for i, node in enumerate(html.xpath('//div[@class="bio"]//dl/dd')):
+        if (i != len(q)):
+            try:
+                a_text = node.text
+                a.append(a_text.strip())
+            except:
+                pass
+
+    summary_list = [x + ' ' + y for (x, y) in map(None, q, a)]
+    summary = '\r'.join(summary_list).strip() if summary_list and Client.Product == 'Plex Web' else '\n'.join(summary_list).strip()
+
+    # setup year
+    try:
+        birthday = RE_BIRTH.search(summary).group(1).strip()
+        year = int(Datetime.ParseDate(birthday).year)
+    except:
+        try:
+            age = RE_AGE.search(summary)
+            year = int(Datetime.ParseDate(str(Datetime.Now())).year) - int(age.group(1).strip())
+        except:
+            year = None
+
+    # setup thumb and art
+    slug = url.rsplit('/', 2)[1]
+    ts = int(Datetime.TimestampFromDatetime(Datetime.Now()))
+
+    return VideoClipObject(
+        title=title[0].strip(),
+        summary=summary,
+        content_rating='X',
+        year=year,
+        thumb=THUMB_URL + slug + '.jpg?_={}'.format(ts),
+        art='/:/plugins/com.plexapp.plugins.chaturbate/resources/art-default.jpg?t={}'.format(ts)
+        )
+
+####################################################################################################
+def MediaObjectsForURL(url):
+
+    return [
+        MediaObject(
+            audio_channels=2,
+            optimized_for_streaming=True,
+            parts=[
+                PartObject(
+                    key=HTTPLiveStreamURL(Callback(PlayVideo, url=url))
+                    )
+                ],
+            )
+        ]
+
+####################################################################################################
+@indirect
+def PlayVideo(url, **kwargs):
+    """Get m3u8 playlist"""
+
+    page = HTTP.Request(url, headers=HTTP_HEADERS_IPAD, cacheTime=0).content
+
+    try:
+        m3u8_urls = RE_HLS.findall(page)
+        Log.Debug(u"* m3u8_urls = '{}'".format(m3u8_urls))
+    except:
+        raise Ex.MediaNotAvailable
+
+    try:
+        playlist = HTTP.Request(m3u8_urls[0], cacheTime=0).content
+        Log.Debug('* playlist.m3u8  = {}'.format(playlist))
+    except:
+        Log.Exception(u"* Cannot parse m3u8 streams for '{}'".format(url))
+        raise Ex.MediaNotAvailable
+
+    for line in playlist.splitlines(False)[1:]:
+        if line.startswith('#EXT-X-STREAM-INF'):
+            stream_search = RE_STREAMS.search(line)
+            if stream_search:
+                Log.Debug('* stream search results = {}'.format(stream_search.groupdict()))
+                continue
+            else:
+                Log.Error('* Error in #EXT-X-STREAM-INF: line | {}'.format(line))
+                Log.Debug('*' * 80)
+                raise Ex.MediaNotAvailable
+
+    Log.Debug(u"* PlayVideo URL = '{}'".format(m3u8_urls[0]))
+    return IndirectResponse(VideoClipObject, key=m3u8_urls[0])

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>URL</key>
+  <dict>
+    <key>LihatTV</key>
+    <dict>
+      <key>Identifier</key>
+      <string>com.plexapp.plugins.lihattv</string>
+      <key>URLPatterns</key>
+      <array>
+        <string>^http://lihattv\.(?:[^/]+\/)?\?(?:play|player)\=(\d+)$</string>
+      </array>
+      <key>TestURLs</key>
+      <array>
+        <string>http://lihattv.com/?play=8119</string>
+        <string>http://lihattv.us/?play=147</string>
+        <string>http://lihattv.tv/?play=18050</string>
+        <string>http://lihattv.tk/?play=18051</string>
+        <string>http://lihattv.cf/?play=18052</string>
+        <string>http://lihattv.ga/?play=8119</string>
+        <string>http://lihattv.gq/?play=147</string>
+        <string>http://lihattv.ml/?play=18050</string>
+        <string>http://lihattv.co.in/?play=18051</string>
+        <string>http://lihattv.co.id/?play=18052</string>
+        <string>http://lihattv.co.uk/?play=8119</string>
+      </array>
+    </dict>
+  </dict>
+</dict>
+</plist>

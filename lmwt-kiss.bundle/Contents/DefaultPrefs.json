@@ -1,0 +1,49 @@
+[
+  {
+    "id": "pw_site_url",
+    "type": "enum",
+    "label": "Site URL",
+    "values": [
+      "http://www.primewire.org", "http://www.primewire.is",
+      "http://www.primewire.ag", "http://www.mprimewire.com"
+      ],
+    "default": "http://www.primewire.org"
+  },
+  {
+    "id": "custom_url",
+    "type": "bool",
+    "label": "Use Custom Site URL",
+    "default": "False"
+  },
+  {
+    "id": "pw_site_url_custom",
+    "type": "text",
+    "label": "Custom Site URL",
+    "default": ""
+  },
+  {
+    "id": "no_bm",
+    "type": "bool",
+    "label": "Disable Bookmarks",
+    "default": "Flase"
+  },
+  {
+    "id": "adult",
+    "type": "bool",
+    "label": "Allow Adult Content",
+    "default": "Flase"
+  },
+  {
+    "id": "update_channel",
+    "label": "Update Channel",
+    "type": "enum",
+    "values": ["Stable", "Development"],
+    "default": "Stable"
+  },
+  {
+    "id": "plextv",
+    "label": "Auth Admin through Plex.tv",
+    "type": "bool",
+    "default": "False"
+  }
+]

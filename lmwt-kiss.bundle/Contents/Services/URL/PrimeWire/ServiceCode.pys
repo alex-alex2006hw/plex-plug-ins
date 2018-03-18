@@ -1,0 +1,135 @@
+#!/usr/bin/env python
+
+"""PrimeWire Service Code"""
+
+####################################################################################################
+def MetadataObjectForURL(url):
+
+    url, hurl = split_urls(url)
+    source_title = Regex(r'https?\:\/\/(?:www\.|beta\.)?(\w+)').search(hurl).group(1).title().strip()
+
+    try:
+        html = HTML.ElementFromURL(url)
+    except:
+        raise Ex.MediaNotAvailable
+
+    info = dict()
+    sslist = ['genres', 'countries', 'actors']
+
+    if '/tv-' in url:
+        info.update({'type': 'tv'})
+        slist = ['title', 'air date', 'runtime']
+
+        # season number and episode number
+        rse = Regex(r'season\s+(\d+)[^\d]+(\d+)').search(html.xpath('//title/text()')[0].lower().split('- primewire ')[-1])
+        info.update({'season_number': int(rse.group(1)), 'episode_number': int(rse.group(2))})
+    else:
+        info.update({'type': 'movie'})
+        slist = ['released', 'runtime']
+        sslist.append('director')
+
+    for td in html.xpath('//td'):
+        st = td.xpath('./strong/text()')
+        if st:
+            # episode title, air date, and runtime
+            for s in slist:
+                if s+':' in st[0].lower():
+                    ftd = td.xpath('./following-sibling::td/text()')
+                    if ftd:
+                        info.update({s: ftd[0].strip()})
+            # show genres, countires, and actors
+            for ss in sslist:
+                if ss+':' in st[0].lower():
+                    fa = td.xpath('./following-sibling::td//a')
+                    if fa:
+                        info.update({ss: [a.text for a in fa]})
+
+        # show_title and show_image
+        prop_list = ['title', 'image']
+        [info.update({('show_'+t if t == 'title' else t): html.xpath('//meta[@property="og:%s"]/@content' %t)[0]}) for t in prop_list]
+
+        # summary
+        table_tr = html.xpath('//div[contains(@class, "info")]/table/tr')[0]
+        nsummary = table_tr.xpath('.//p')
+        info.update({'summary': nsummary[0].text_content().strip()[len(info['show_title']+': '):]})
+
+        # episode rating
+        nrating = table_tr.xpath('.//li[@class="current-rating"]')
+        rs1 = [float(s) for s in nrating[0].text.split('Currently')[-1].strip().split('/')]
+        info.update({'rating': (rs1[0]/rs1[1])*10})
+
+    # setup originally_available_at date
+    if 'released' in info.keys():
+        try:
+            originally_available_at = Datetime.ParseDate(info['released'])
+        except:
+            originally_available_at = None
+    else:
+        try:
+            originally_available_at = Datetime.ParseDate(info['air date'])
+        except:
+            originally_available_at = None
+
+    # setup duration
+    try:
+        duration = Datetime.MillisecondsFromString(info['runtim'])
+    except:
+        duration = None
+
+    # setup year
+    year = int(originally_available_at.year) if originally_available_at else None
+
+    # setup channel artwork & thumb
+    time_stamp = int(Datetime.TimestampFromDatetime(Datetime.Now()))
+    art = '/:/plugins/com.plexapp.plugins.lmwt.kiss/resources/art-default.jpg?t=%s' %str(time_stamp)
+    thumb = info['image'] if info['image'].startswith('http:') else 'http:' + info['image']
+    fallback = 'http://i.imgur.com/75YO83o.jpg'
+
+    if info['type'] == 'tv':
+        return EpisodeObject(
+            title=info['title'],
+            thumb=Resource.ContentsOfURLWithFallback([thumb, fallback]),
+            show=info['show_title'],
+            season=info['season_number'],
+            index=info['episode_number'],
+            tags=info['genres'] if 'genres' in info.keys() else [],
+            originally_available_at=originally_available_at,
+            summary=info['summary'] if 'summary' in info.keys() else None,
+            duration=duration,
+            rating=info['rating'] if 'rating' in info.keys() else None,
+            source_title=source_title,
+            art=art
+            )
+    else:
+        return MovieObject(
+            title=info['show_title'],
+            thumb=Resource.ContentsOfURLWithFallback([thumb, fallback]),
+            countries=info['countries'] if 'countires' in info.keys() else [],
+            genres=info['genres'] if 'genres' in info.keys() else [],
+            originally_available_at=originally_available_at,
+            year=year,
+            summary=info['summary'] if 'summary' in info.keys() else None,
+            duration=duration,
+            rating=info['rating'] if 'rating' in info.keys() else None,
+            source_title=source_title,
+            art=art
+            )
+
+####################################################################################################
+@deferred
+def MediaObjectsForURL(url):
+
+    url, hurl = split_urls(url)
+    try:
+        return URLService.MediaObjectsForURL(hurl)
+    except:
+        Log.Exception(u"Cannot find media for '{}'".format(hurl))
+
+    raise Ex.MediaNotAvailable
+
+####################################################################################################
+def split_urls(url):
+    urls = url.split('&pw_page_url=')
+    hurl = String.Base64Decode(urls[0].split('url=')[-1].split('&')[0])
+
+    return (urls[1], hurl)

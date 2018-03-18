@@ -1,0 +1,88 @@
+import urllib,urllib2,re,urlparse
+import os, sys
+from lxml import html
+
+try:
+	path = os.getcwd().split("?\\")[1].split('Plug-in Support')[0]+"Plug-ins/View47.bundle/Contents/Code/Modules/View47"
+except:
+	path = os.getcwd().split("Plug-in Support")[0]+"Plug-ins/View47.bundle/Contents/Code/Modules/View47"
+if path not in sys.path:
+	sys.path.append(path)
+
+import cfscrape
+scraper = cfscrape.create_scraper()
+
+########################################################################################
+def NormalizeURL(url):
+
+	return url
+
+########################################################################################
+def MetadataObjectForURL(url):
+
+	page_data = scraper.get(url)
+	page = html.fromstring(page_data.text)
+
+	title = page.xpath("//title/text()")[0].replace(' | View47.Com','',1)
+	try:
+		description = page.xpath("//div[@class='info-txt']/p/text()")[0]
+	except:
+		description = page.xpath("//meta[@property='og:description']/@content")[0]
+	thumb = page.xpath("//div[@class='poster']/a/img/@src")[0]
+	director = page.xpath("//dl[1]/dd[1]/a/text()")
+	imdb_rating = page.xpath("//dl[2]/dd[4]/text()")[0]
+	try:
+		length = page.xpath("//div[@class='dinfo']/dl[@class='col2']/dd[2]/text()")[0].replace(' min','',1)
+		length = int(length) * 60000
+	except:
+		length = 0
+	try:
+		return VideoClipObject(
+			title = title,
+			summary = description,
+			directors = director,
+			rating = float(imdb_rating),
+			thumb = thumb,
+			duration = length
+		)
+	except:
+		return VideoClipObject(
+			title = title,
+			summary = description,
+			directors = director,
+			thumb = thumb,
+			duration = length
+		)
+
+########################################################################################
+def MediaObjectsForURL(url):
+
+	return [
+        	MediaObject(
+			parts = [
+				PartObject(
+					key = 
+						Callback(PlayVideo, url = url, post_url=url))
+				],
+			video_resolution = 720,
+			bitrate = 3000,
+			audio_codec = AudioCodec.AAC,
+			audio_channels = 2,
+			optimized_for_streaming = True
+			)
+	]
+
+########################################################################################
+#@indirect
+def PlayVideo(url):
+
+	page_data = scraper.get(url)
+	googlelinktext = html.fromstring(page_data.text)
+	for each in googlelinktext.xpath("//ul[@class='css_server_new']/li/a"):
+		linkref = each.xpath("./@href")[0]
+		pagelink = scraper.get(linkref).content
+		try:
+			file = Regex('file:\t"([^"]+)"').search(pagelink).groups()[0]
+			return Redirect(file)
+		except:
+			continue
