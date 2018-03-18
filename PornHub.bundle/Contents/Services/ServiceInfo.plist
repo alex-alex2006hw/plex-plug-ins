@@ -4,11 +4,11 @@
 <dict>
 	<key>URL</key>
 	<dict>
-		<key>Rooster Teeth</key>
+		<key>pornhub</key>
 		<dict>
 			<key>URLPatterns</key>
 			<array>
-				<string>http:\/\/.*\.?roosterteeth\.com\/episode\/.+</string>
+				<string>^http://([^.]+.)?pornhub\.com/.+</string>
 			</array>
 		</dict>
 	</dict>
